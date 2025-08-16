@@ -1,0 +1,170 @@
+---
+title: "Untitled"
+author: "Anoop Ajith"
+date: "2025-07-05"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r}
+pacman::p_load(tidyverse,dplyr,tidymodels,here,sf,tmap)
+```
+#loading the dataset
+```{r}
+tesco_data<-read.csv(here("data/Oct_msoa_grocery.csv"))
+```
+
+```{r}
+ggplot(tesco_data, aes(x = avg_age, y = f_meat_red)) +
+  geom_point(color = "darkred") +
+  geom_smooth(method = "lm", color = "black") +
+  labs(
+    title = "Red Meat Consumption vs. Average Age",
+    x = "Average Age",
+    y = "Proportion of Red Meat"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+ggplot(tesco_data, aes(x = people_per_sq_km, y = h_nutrients_weight_norm)) +
+  geom_point(alpha = 0.6, color = "darkgreen") +
+  geom_smooth(method = "lm", color = "black") +
+  labs(
+    title = "Nutritional Diversity vs. Population Density",
+    x = "Population Density (per km²)",
+    y = "Nutritional Diversity (Entropy)"
+  ) +
+  theme_minimal()
+```
+
+## Higher population density areas may have slightly lower nutritional diversity.
+
+```{r}
+ggplot(tesco_data, aes(x = f_fruit_veg)) +
+  geom_histogram(bins = 20, fill = "skyblue", color = "black") +
+  labs(
+    title = "Distribution of Fruit & Vegetable Purchases",
+    x = "Fruit & Veg Share",
+    y = "Count of MSOAs"
+  ) +
+  theme_minimal()
+```
+
+## The highest concentration of MSOAs purchase around 0.26 to 0.30 of their groceries as fruit & vegetables. That’s about 26%–30% of food purchases.
+## fruit & veg purchases are fairly concentrated around a common average, some areas do significantly better (closer to 40%)
+
+
+
+```{r}
+cor(tesco_data$f_meat_red,tesco_data$avg_age)
+cor(tesco_data$h_nutrients_weight_norm,tesco_data$people_per_sq_km)
+cor(tesco_data$h_nutrients_weight_norm, tesco_data$people_per_sq_km)
+cor(tesco_data$h_nutrients_weight_norm, tesco_data$avg_age)
+
+```
+
+*lower diversity in aging communities(age_65+)
+*higher diversity in central, dense areas
+
+
+### There is a weak negative correlation between red meat purchases and average age.This suggests that as the average age of a population increases, the proportion of red meat purchased tends to slightly decrease.
+### This is a very weak (almost negligible) negative correlation between nutritional diversity (entropy) and population size of MSOAs.Which means areas with larger populations tend to have very slightly lower nutritional diversity, but the effect is extremely small.
+
+
+```{r}
+packageVersion("tmap")
+```
+#IMPORT TESCO YEARLY MSOA DATA
+```{r}
+tesco_data<-read_csv(here("data/Oct_msoa_grocery.csv")) %>%rename(msoa_code=area_id)
+```
+
+# Importing shape files 
+```{r}
+msoas<-st_read(here("data/statistical-gis-boundaries-london/ESRI/MSOA_2011_London_gen_MHW.shp"))%>%
+rename(msoa_code=MSOA11CD,msoa_name=MSOA11NM)
+```
+# Merge them together
+## using the inner_join() fun from dplyr package to join 2 dataset by a common variable 
+```{r}
+tesco_and_msoas<-inner_join(msoas, tesco_data)
+```
+#tmap - creating maps
+ Resource:tmap.geocompx.org/charts - ch:14
+
+```{r}
+## adding the base "shape" layer
+## then add the polygon layer
+tm_shape(tesco_and_msoas)+tm_polygons(fill="h_nutrients_weight_norm",
+                                      fill.chart = tm_chart_histogram(),
+                                      fill.legend = tm_legend(title="Proportion",reverse=TRUE)
+                                      ,fill.scale=tm_scale(values="Greens"))+ tm_title("Proportion of Entropy of nutrients weight")+tm_compass()+tm_scale_bar()+tm_layout(frame=FALSE,bg.color = "grey")
+
+
+```
+*This map uses entropy scores to measure the diversity of nutrients in the food purchased in each MSOA. 
+-a higher value (closer to 1) means people in that area buy a wider range of nutrients
+-a lower value (closer to 0) indicates a more limited or repetitive diet.
+
+
+From correlation analysis we found out that as population density increases, nutritional diversity increases.
+*Denser areas like central London-
+  Likely have better access to diverse food options (supermarkets, ethnic stores, fresh produce)
+     May attract younger, more diverse, higher-income residents
+*Less dense areas may be limited to fewer food outlets, leading to less dietary variation.
+
+Summary - Nutritional diversity is higher in densely populated urban areas, suggesting greater food access and possibly more health-conscious or culturally diverse consumer behavior
+
+
+```{r}
+cor(tesco_data$f_fruit_veg, tesco_data$avg_age)
+cor(tesco_data$f_fruit_veg, tesco_data$people_per_sq_km)
+cor(tesco_data$f_fruit_veg, tesco_data$`age_65+`)
+```
+
+* Minimal relationship between age and fruit/veg consumption
+* positively correlated with population density :better access to fresh produce in cities.
+* Weak or no correlation with age : age isn't a major factor of fruit/veg consumption in this dataset.
+```{r}
+tm_shape(tesco_and_msoas)+tm_polygons(fill="f_fruit_veg",
+                                      fill.chart = tm_chart_histogram(),
+                                      fill.legend = tm_legend(title="Proportion",reverse=TRUE)
+                                      ,fill.scale=tm_scale(values="Greens"))+ tm_title("Proportion of fruits and vegitables")+tm_compass()+tm_scale_bar()+tm_layout(frame=FALSE,bg.color = "grey")
+
+```
+Summary :
+* Areas with higher population density generally show higher shares of fruit & veg purchases, which matches the positive correlation found between f_fruit_veg and population_density.
+
+* There is no strong pattern related to age in the map, which aligns with the very weak correlation between f_fruit_veg and both avg_age (r = 0.07) and age_65+ (r = -0.04). 
+-This suggests that demographic age factors have little influence on fruit and vegetable purchasing behavior in these areas.
+
+
+```{r}
+tm_shape(tesco_and_msoas)+tm_polygons(fill="f_energy_sugar",
+                                      fill.chart = tm_chart_histogram(),
+                                      fill.legend = tm_legend(title="Proportion",reverse=TRUE)
+                                      ,fill.scale=tm_scale(values="Greens"))+ tm_title("Proportion of ugar in calorie intake")+tm_compass()+tm_scale_bar()+tm_layout(frame=FALSE,bg.color = "grey")
+
+```
+```{r}
+cor(tesco_data$f_energy_sugar, tesco_data$people_per_sq_km)   
+cor(tesco_data$f_energy_sugar, tesco_data$avg_age)             
+cor(tesco_data$f_energy_sugar, tesco_data$`age_65+`)           
+```
+* Moderately negative : lower sugar in denser areas
+* Weak positive : older areas consume slightly more sugar
+* Moderate positive : elderly-dense areas consume more sugar
+
+
+Summary 
+* The T-map shows that areas with higher proportions of elderly residents tend to have higher sugar-based calorie intake, as supported by a moderate positive correlation (r = 0.31) with age_65+. This may reflect reliance on processed or sugary foods among older populations.
+* population-dense areas tend to consume less sugar, indicated by a negative correlation (r = -0.32) with population density. These zones may have better food access or younger, health-conscious demographics.
+* A weak positive correlation with average age (r = 0.20) further supports the pattern that older areas consume slightly more sugar overall.
+
+
+
+
+
