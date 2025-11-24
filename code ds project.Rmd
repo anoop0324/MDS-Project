@@ -2,20 +2,25 @@
 title: "Untitled"
 author: "Anoop Ajith"
 date: "2025-07-05"
-output: html_document
+output:
+  pdf_document:
+    latex_engine: xelatex
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
+# loading the packages 
 ```{r}
-pacman::p_load(tidyverse,dplyr,tidymodels,here,sf,tmap)
+pacman::p_load(tidyverse,dplyr,tidymodels,here,sf,tmap,readxl,spdep,cluster, factoextra, NbClust,ggpubr)
 ```
 #loading the dataset
 ```{r}
 tesco_data<-read.csv(here("data/Oct_msoa_grocery.csv"))
 ```
 
+# Initial EDA , visualisations
 ```{r}
 ggplot(tesco_data, aes(x = avg_age, y = f_meat_red)) +
   geom_point(color = "darkred") +
@@ -28,6 +33,8 @@ ggplot(tesco_data, aes(x = avg_age, y = f_meat_red)) +
   theme_minimal()
 ```
 
+
+# Nutrient diversity vs population density ggplot
 ```{r}
 ggplot(tesco_data, aes(x = people_per_sq_km, y = h_nutrients_weight_norm)) +
   geom_point(alpha = 0.6, color = "darkgreen") +
@@ -40,8 +47,8 @@ ggplot(tesco_data, aes(x = people_per_sq_km, y = h_nutrients_weight_norm)) +
   theme_minimal()
 ```
 
-## Higher population density areas may have slightly lower nutritional diversity.
 
+# Distribution of fruits and vegetable purchase
 ```{r}
 ggplot(tesco_data, aes(x = f_fruit_veg)) +
   geom_histogram(bins = 20, fill = "skyblue", color = "black") +
@@ -53,10 +60,9 @@ ggplot(tesco_data, aes(x = f_fruit_veg)) +
   theme_minimal()
 ```
 
-## The highest concentration of MSOAs purchase around 0.26 to 0.30 of their groceries as fruit & vegetables. That’s about 26%–30% of food purchases.
-## fruit & veg purchases are fairly concentrated around a common average, some areas do significantly better (closer to 40%)
 
 
+# Simple correlation anlysis
 
 ```{r}
 cor(tesco_data$f_meat_red,tesco_data$avg_age)
@@ -66,13 +72,7 @@ cor(tesco_data$h_nutrients_weight_norm, tesco_data$avg_age)
 
 ```
 
-*lower diversity in aging communities(age_65+)
-*higher diversity in central, dense areas
-
-
-### There is a weak negative correlation between red meat purchases and average age.This suggests that as the average age of a population increases, the proportion of red meat purchased tends to slightly decrease.
-### This is a very weak (almost negligible) negative correlation between nutritional diversity (entropy) and population size of MSOAs.Which means areas with larger populations tend to have very slightly lower nutritional diversity, but the effect is extremely small.
-
+# Loading MSOA shape files and Merging spacial Data 
 
 ```{r}
 packageVersion("tmap")
@@ -92,31 +92,291 @@ rename(msoa_code=MSOA11CD,msoa_name=MSOA11NM)
 ```{r}
 tesco_and_msoas<-inner_join(msoas, tesco_data)
 ```
-#tmap - creating maps
- Resource:tmap.geocompx.org/charts - ch:14
+# Moran's I
+
+#step 1 : Definition of our neighbour matrix
 
 ```{r}
-## adding the base "shape" layer
-## then add the polygon layer
-tm_shape(tesco_and_msoas)+tm_polygons(fill="h_nutrients_weight_norm",
-                                      fill.chart = tm_chart_histogram(),
-                                      fill.legend = tm_legend(title="Proportion",reverse=TRUE)
-                                      ,fill.scale=tm_scale(values="Greens"))+ tm_title("Proportion of Entropy of nutrients weight")+tm_compass()+tm_scale_bar()+tm_layout(frame=FALSE,bg.color = "grey")
+neighbours <- poly2nb(tesco_and_msoas, queen = TRUE)
+neighbours
+
+```
+
+# step 2 : How are neighbours weighted
+```{r}
+weights_matrix <- nb2listw(neighbours, style = "W")
+weights_matrix
 
 
 ```
-*This map uses entropy scores to measure the diversity of nutrients in the food purchased in each MSOA. 
--a higher value (closer to 1) means people in that area buy a wider range of nutrients
--a lower value (closer to 0) indicates a more limited or repetitive diet.
+
+# step 3 : Compute Moran's I
+```{r}
+moran.test(tesco_and_msoas$h_nutrients_weight_norm, listw =weights_matrix )
 
 
-From correlation analysis we found out that as population density increases, nutritional diversity increases.
-*Denser areas like central London-
-  Likely have better access to diverse food options (supermarkets, ethnic stores, fresh produce)
-     May attract younger, more diverse, higher-income residents
-*Less dense areas may be limited to fewer food outlets, leading to less dietary variation.
 
-Summary - Nutritional diversity is higher in densely populated urban areas, suggesting greater food access and possibly more health-conscious or culturally diverse consumer behavior
+
+```
+
+# Load and join Income dataset
+
+
+```{r}
+income_data <- read_excel("C:\\Users\\anoop\\Documents\\MDS-project\\data\\ons-model-based-income-estimates-msoa.xls",sheet=3) %>%rename(msoa_code=`MSOA code`)
+
+
+```
+```{r}
+tesco_and_msoas_and_income <- inner_join( tesco_and_msoas, income_data)
+
+```
+```{r}
+class(tesco_and_msoas_and_income)
+```
+
+# Morans I for income.
+
+```{r}
+neighbours <- poly2nb(tesco_and_msoas_and_income, queen = TRUE)
+neighbours
+
+```
+```{r}
+weights_matrix <- nb2listw(neighbours, style = "W")
+weights_matrix
+```
+```{r}
+moran.test(tesco_and_msoas_and_income$`Net weekly income (£)`, listw =weights_matrix )
+
+```
+
+
+
+# k means clustering on income 
+
+
+```{r}
+
+# Load necessary libraries
+pacman::p_load(tidyverse, cluster, factoextra, NbClust, ggpubr, sf)
+
+# selecting features for clustering 
+income_cols <- names(tesco_and_msoas_and_income)[
+  str_detect(tolower(names(tesco_and_msoas_and_income)), "income")
+]
+
+if (length(income_cols) > 0) {
+  message("Including income variables: ", paste(income_cols, collapse = ", "))
+  selected_cols <- c("avg_age", "people_per_sq_km", "h_nutrients_weight_norm", 
+                     "f_meat_red", "f_fruit_veg", income_cols)
+} else {
+  message("No income columns found — proceeding without them.")
+  selected_cols <- c("avg_age", "people_per_sq_km", "h_nutrients_weight_norm", 
+                     "f_meat_red", "f_fruit_veg")
+}
+
+# cleaning and scaling data 
+# Dropping  geometry, selecting numeric features and cleaning the data.
+tesco_cluster <- tesco_and_msoas_and_income %>%
+  st_drop_geometry() %>%
+  select(all_of(selected_cols)) %>%
+  mutate(across(everything(), as.numeric)) %>%
+  filter(if_all(everything(), ~ is.finite(.)))
+
+tesco_scaled <- scale(tesco_cluster)
+
+# Finding the optimum number of clusters
+# Elbow method
+fviz_nbclust(tesco_scaled, kmeans, method = "wss") +
+  labs(title = "Elbow Method for Optimal Number of Clusters")
+
+# Silhouette method
+fviz_nbclust(tesco_scaled, kmeans, method = "silhouette") +
+  labs(title = "Silhouette Method for Optimal Number of Clusters")
+
+
+# Running the k means
+set.seed(123)
+k_optimal <- 3  
+kmeans_result <- kmeans(tesco_scaled, centers = k_optimal, nstart = 25)
+
+# adding the cluster labels back 
+tesco_cluster_with_labels <- tesco_cluster %>%
+  mutate(cluster = factor(kmeans_result$cluster))
+
+# visualising the cluster
+fviz_cluster(kmeans_result, data = tesco_scaled,
+             geom = "point",
+             ellipse.type = "norm",
+             main = "K-Means Clustering Results")
+
+# Final summarisation of the clusters 
+cluster_summary <- tesco_cluster_with_labels %>%
+  group_by(cluster) %>%
+  summarise(across(where(is.numeric), mean, na.rm = TRUE), .groups = "drop")
+
+print(cluster_summary)
+```
+
+# K-means clustering on Nutrient Diversity
+
+
+
+```{r}
+
+# Load libraries
+library(dplyr)
+library(factoextra)
+library(cluster)
+library(sf)
+library(tmap)
+
+# selecting the key features
+cluster_data <- tesco_and_msoas_and_income %>%
+  st_set_geometry(NULL) %>%
+  select(
+    h_nutrients_weight_norm,    
+    f_fruit_veg,                 
+    f_energy_sugar,            
+    f_readymade,               
+    people_per_sq_km,           
+    income = `Net weekly income (£)`
+  ) %>%
+  na.omit()
+
+# scaling the variables
+cluster_scaled <- scale(cluster_data)
+
+# Determining the optimal number of clusters 
+fviz_nbclust(cluster_scaled, kmeans, method = "wss") +
+  ggtitle("Elbow Method for Optimal k")
+
+fviz_nbclust(cluster_scaled, kmeans, method = "silhouette") +
+  ggtitle("Silhouette Method for Optimal k")
+
+# Running k means clustering 
+set.seed(123)
+k_optimal <- 3
+kmeans_result <- kmeans(cluster_scaled, centers = k_optimal, nstart = 25)
+
+# Adding the cluster labels back the original data set
+tesco_and_msoas_and_income$cluster <- factor(kmeans_result$cluster)
+
+# Summarising the cluster profiles 
+
+cluster_summary <- cluster_data %>%
+  mutate(cluster = kmeans_result$cluster) %>%
+  group_by(cluster) %>%
+  summarise(across(everything(), mean, na.rm = TRUE))
+
+print(cluster_summary)
+```
+
+```{r}
+# Set tmap to static plotting mode
+tmap_mode("plot")
+
+tm_shape(tesco_and_msoas_and_income) +
+  tm_polygons(
+    "cluster",
+    palette = c("#8B4513", "#DEB887", "#F5F5DC"),  # SaddleBrown, BurlyWood, Beige
+    title = "Nutritional Clusters (K-Means)"
+  ) +
+  tm_layout(
+    main.title = "Spatial Distribution of Nutritional Clusters in London",
+    legend.outside = TRUE
+  )
+```
+
+
+
+
+# Regression model to verify the clustering
+
+```{r}
+# Load required packages
+library(dplyr)
+library(broom)
+library(ggplot2)
+library(car)
+
+# preparing the data
+reg_data <- tesco_and_msoas_and_income %>%
+  st_set_geometry(NULL) %>%  
+  select(
+    h_nutrients_weight_norm,
+    income = `Net weekly income (£)`,
+    people_per_sq_km,
+    cluster
+  ) %>%
+  na.omit()
+
+# Fitting the model
+model_cluster <- lm(h_nutrients_weight_norm ~ income + people_per_sq_km + cluster, data = reg_data)
+
+# viewing the summary statistics
+summary(model_cluster)
+
+tidy(model_cluster, conf.int = TRUE)
+
+# checking for the assumptions 
+par(mfrow = c(2, 2))
+plot(model_cluster)
+par(mfrow = c(1, 1))
+
+# multicolinearity check 
+vif(model_cluster)
+
+# Visualization
+
+brown_beige_palette <- c("#8B4513", "#D2B48C", "#A0522D")  
+
+ggplot(reg_data, aes(x = cluster, y = h_nutrients_weight_norm, fill = cluster)) +
+  geom_boxplot() +
+  scale_fill_manual(values = brown_beige_palette) +
+  labs(
+    title = "Nutrient Diversity by Cluster",
+    x = "Cluster Type",
+    y = "Nutrient Diversity (Entropy)"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    axis.title = element_text(size = 12),
+    legend.position = "none"
+  )
+
+
+
+```
+
+# Plotting the predicted vs observed 
+
+
+```{r}
+ggplot(reg_data, aes(x = predict(model_cluster), y = h_nutrients_weight_norm)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", color = "red") +
+  labs(title = "Predicted vs Observed Nutrient Diversity", x = "Predicted", y = "Observed")
+```
+
+
+#tmap - creating maps
+ Resource:tmap.geocompx.org/charts - ch:14
+ 
+# Choropleth maps for nutrient diversity
+
+```{r}
+# adding the base "shape" layer
+# then add the polygon layer
+tm_shape(tesco_and_msoas)+tm_polygons(fill="h_nutrients_weight_norm",
+                                      fill.chart = tm_chart_histogram(),
+                                      fill.legend = tm_legend(title="Proportion",reverse=TRUE)
+                                      ,fill.scale=tm_scale(values="brown"))+ tm_title("Proportion of Entropy of nutrients weight")+tm_compass()+tm_scalebar()+tm_layout(frame=FALSE,bg.color = "white")
+
+
+```
 
 
 ```{r}
@@ -125,45 +385,29 @@ cor(tesco_data$f_fruit_veg, tesco_data$people_per_sq_km)
 cor(tesco_data$f_fruit_veg, tesco_data$`age_65+`)
 ```
 
-* Minimal relationship between age and fruit/veg consumption
-* positively correlated with population density :better access to fresh produce in cities.
-* Weak or no correlation with age : age isn't a major factor of fruit/veg consumption in this dataset.
+```{r}
+cor(tesco_data$f_energy_sugar, tesco_data$people_per_sq_km)   
+cor(tesco_data$f_energy_sugar, tesco_data$avg_age)             
+cor(tesco_data$f_energy_sugar, tesco_data$`age_65+`)           
+```
+# choropleth maps for fruits and vegitables share 
+
 ```{r}
 tm_shape(tesco_and_msoas)+tm_polygons(fill="f_fruit_veg",
                                       fill.chart = tm_chart_histogram(),
                                       fill.legend = tm_legend(title="Proportion",reverse=TRUE)
-                                      ,fill.scale=tm_scale(values="Greens"))+ tm_title("Proportion of fruits and vegitables")+tm_compass()+tm_scale_bar()+tm_layout(frame=FALSE,bg.color = "grey")
-
+                                      ,fill.scale=tm_scale(values="brown"))+ tm_title("Proportion of fruits and vegitables")+tm_compass()+tm_scalebar()+tm_layout(frame=FALSE,bg.color = "white")
 ```
-Summary :
-* Areas with higher population density generally show higher shares of fruit & veg purchases, which matches the positive correlation found between f_fruit_veg and population_density.
-
-* There is no strong pattern related to age in the map, which aligns with the very weak correlation between f_fruit_veg and both avg_age (r = 0.07) and age_65+ (r = -0.04). 
--This suggests that demographic age factors have little influence on fruit and vegetable purchasing behavior in these areas.
+# Choropleth for sugar calorie intake
 
 
 ```{r}
 tm_shape(tesco_and_msoas)+tm_polygons(fill="f_energy_sugar",
                                       fill.chart = tm_chart_histogram(),
                                       fill.legend = tm_legend(title="Proportion",reverse=TRUE)
-                                      ,fill.scale=tm_scale(values="Greens"))+ tm_title("Proportion of ugar in calorie intake")+tm_compass()+tm_scale_bar()+tm_layout(frame=FALSE,bg.color = "grey")
+                                      ,fill.scale=tm_scale(values="brown"))+ tm_title("Proportion of sugar in calorie intake")+tm_compass()+tm_scalebar()+tm_layout(frame=FALSE,bg.color = "white")
 
 ```
-```{r}
-cor(tesco_data$f_energy_sugar, tesco_data$people_per_sq_km)   
-cor(tesco_data$f_energy_sugar, tesco_data$avg_age)             
-cor(tesco_data$f_energy_sugar, tesco_data$`age_65+`)           
-```
-* Moderately negative : lower sugar in denser areas
-* Weak positive : older areas consume slightly more sugar
-* Moderate positive : elderly-dense areas consume more sugar
-
-
-Summary 
-* The T-map shows that areas with higher proportions of elderly residents tend to have higher sugar-based calorie intake, as supported by a moderate positive correlation (r = 0.31) with age_65+. This may reflect reliance on processed or sugary foods among older populations.
-* population-dense areas tend to consume less sugar, indicated by a negative correlation (r = -0.32) with population density. These zones may have better food access or younger, health-conscious demographics.
-* A weak positive correlation with average age (r = 0.20) further supports the pattern that older areas consume slightly more sugar overall.
-
 
 
 
