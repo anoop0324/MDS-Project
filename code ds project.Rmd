@@ -1,5 +1,5 @@
 ---
-title: "Untitled"
+title: "MDS Project"
 author: "Anoop Ajith"
 date: "2025-07-05"
 output:
@@ -15,7 +15,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r}
 pacman::p_load(tidyverse,dplyr,tidymodels,here,sf,tmap,readxl,spdep,cluster, factoextra, NbClust,ggpubr)
 ```
-#loading the dataset
+# loading the dataset
 ```{r}
 tesco_data<-read.csv(here("data/Oct_msoa_grocery.csv"))
 ```
@@ -77,7 +77,7 @@ cor(tesco_data$h_nutrients_weight_norm, tesco_data$avg_age)
 ```{r}
 packageVersion("tmap")
 ```
-#IMPORT TESCO YEARLY MSOA DATA
+# IMPORT TESCO YEARLY MSOA DATA
 ```{r}
 tesco_data<-read_csv(here("data/Oct_msoa_grocery.csv")) %>%rename(msoa_code=area_id)
 ```
@@ -94,7 +94,7 @@ tesco_and_msoas<-inner_join(msoas, tesco_data)
 ```
 # Moran's I
 
-#step 1 : Definition of our neighbour matrix
+# step 1 : Definition of our neighbour matrix
 
 ```{r}
 neighbours <- poly2nb(tesco_and_msoas, queen = TRUE)
@@ -362,8 +362,6 @@ ggplot(reg_data, aes(x = predict(model_cluster), y = h_nutrients_weight_norm)) +
 ```
 
 
-#tmap - creating maps
- Resource:tmap.geocompx.org/charts - ch:14
  
 # Choropleth maps for nutrient diversity
 
